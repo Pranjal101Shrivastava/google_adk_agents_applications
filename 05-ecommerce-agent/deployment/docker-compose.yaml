@@ -1,0 +1,59 @@
+# Local development stack for the E-Commerce Agent.
+#
+#   docker compose -f deployment/docker-compose.yaml up -d
+#   make db-init
+#
+# Postgres stands in for AlloyDB. The Toolbox container is the same image you
+# run in production; only the `sources` entry in tools.yaml differs.
+name: ecommerce-agent
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LOCAL_DB_PASS:-storefront}
+      POSTGRES_DB: storefront
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../data:/seed:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d storefront"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  toolbox:
+    image: us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - --tools-file
+      - /config/tools.yaml
+      - --address
+      - 0.0.0.0
+      - --port
+      - "5000"
+    environment:
+      # Consumed by the ${...} placeholders in tools.yaml.
+      LOCAL_DB_HOST: postgres
+      LOCAL_DB_PORT: "5432"
+      LOCAL_DB_NAME: storefront
+      LOCAL_DB_USER: postgres
+      LOCAL_DB_PASS: ${LOCAL_DB_PASS:-storefront}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      # The alloydb-postgres source is still declared; give its placeholders
+      # harmless values so the file parses locally.
+      PROJECT_ID: local
+      DB_USER: postgres
+      DB_PASS: ${LOCAL_DB_PASS:-storefront}
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./toolbox:/config:ro
+
+volumes:
+  pgdata:
