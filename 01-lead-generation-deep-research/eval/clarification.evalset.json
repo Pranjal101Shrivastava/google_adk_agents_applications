@@ -1,0 +1,94 @@
+{
+  "eval_set_id": "lead_generation_clarification",
+  "name": "Clarification behaviour",
+  "description": "The agent must extract what it can and ask for the rest instead of inventing a brief.",
+  "eval_cases": [
+    {
+      "eval_id": "missing_industry",
+      "conversation": [
+        {
+          "invocation_id": "clarify-001",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "I need leads in Thailand." }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "I have Thailand as the target market. Which industry should I target, and what do you sell? I need the industry before I can study comparable market entries."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "intent_extractor_agent", "args": {} }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "lead_generation_agent",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "missing_country",
+      "conversation": [
+        {
+          "invocation_id": "clarify-002",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "Find me fintech leads." }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Fintech noted. Which country or region should I target? I will not guess a market, because the signals I look for are market-specific."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "intent_extractor_agent", "args": {} }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "lead_generation_agent",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "chitchat_does_not_trigger_research",
+      "conversation": [
+        {
+          "invocation_id": "clarify-003",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "Hi, what can you do?" }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "I find B2B leads by first studying companies that already entered a market, learning the signals that preceded the move, then looking for those same signals in companies that have not moved yet. Tell me a target country and industry and I will start."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "intent_extractor_agent", "args": {} }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "lead_generation_agent",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    }
+  ]
+}

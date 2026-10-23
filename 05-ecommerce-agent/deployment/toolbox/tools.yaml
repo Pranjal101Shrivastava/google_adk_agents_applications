@@ -1,0 +1,639 @@
+# MCP Toolbox for Databases - storefront tools.
+#
+# Two things about this file are load-bearing.
+#
+# 1. **No credentials.** Every secret is a ${...} placeholder resolved from the
+#    environment at startup. The reference implementation of this pattern
+#    commits `password: alloydb` and a real OAuth client ID; this does not.
+#
+# 2. **Identity comes from a verified token claim, not from a parameter.**
+#    Tools that touch personal data declare:
+#
+#        authServices:
+#          - name: google_signin
+#            field: email
+#
+#    Toolbox then injects the `email` claim from the caller's *verified* Google
+#    ID token into that parameter. The model cannot set it, cannot see it, and
+#    cannot override it. A customer who types "show me bob@example.com's
+#    orders" gets their own orders, because the parameter was never theirs to
+#    choose.
+#
+# Run locally:
+#   export LOCAL_DB_PASS=storefront GOOGLE_CLIENT_ID=...
+#   ./toolbox --tools-file deployment/toolbox/tools.yaml
+#
+# Docs: https://googleapis.github.io/genai-toolbox/
+
+authServices:
+  google_signin:
+    kind: google
+    # Must match GOOGLE_CLIENT_ID in the agent's environment: the agent
+    # verifies the audience and Toolbox verifies it again. Never hardcode it.
+    clientId: ${GOOGLE_CLIENT_ID}
+
+sources:
+  # --- AlloyDB for PostgreSQL (production) -------------------------------
+  storefront-db:
+    kind: alloydb-postgres
+    project: ${PROJECT_ID}
+    region: ${DB_REGION:us-central1}
+    cluster: ${DB_CLUSTER:storefront-cluster}
+    instance: ${DB_INSTANCE:storefront-primary}
+    database: ${DB_NAME:storefront}
+    user: ${DB_USER}
+    password: ${DB_PASS}
+
+  # --- Local Postgres (development) --------------------------------------
+  storefront-db-local:
+    kind: postgres
+    host: ${LOCAL_DB_HOST:127.0.0.1}
+    port: ${LOCAL_DB_PORT:5432}
+    database: ${LOCAL_DB_NAME:storefront}
+    user: ${LOCAL_DB_USER:postgres}
+    password: ${LOCAL_DB_PASS}
+
+tools:
+  # ======================================================================
+  # Catalogue - public, no identity required
+  # ======================================================================
+  search-products-by-description:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      Find products matching a plain-language need, e.g. "something grippy for
+      wet trail running" or "a warm base layer for winter hiking". Matches on
+      meaning rather than keywords, so use the customer's own words. Returns
+      the name, brand, category, description and lowest price.
+    parameters:
+      - name: description
+        type: string
+        description: What the customer is looking for, in their own words.
+    statement: |
+      SELECT
+        p.name, p.brand, p.category, p.description,
+        MIN(v.price) AS from_price,
+        1 - (p.embedding <=> embedding('text-embedding-005', $1)::vector) AS similarity
+      FROM products p
+      JOIN product_variants v ON v.product_id = p.product_id
+      WHERE p.embedding IS NOT NULL
+      GROUP BY p.product_id, p.name, p.brand, p.category, p.description, p.embedding
+      ORDER BY similarity DESC
+      LIMIT 5;
+
+  search-products-by-keyword:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      Keyword search over product names, brands and descriptions. Use this when
+      the semantic search returns nothing useful, when the customer named an
+      exact product, or on a deployment without embeddings.
+    parameters:
+      - name: query
+        type: string
+        description: A product name, brand or keyword.
+    statement: |
+      SELECT p.name, p.brand, p.category, p.description, MIN(v.price) AS from_price
+      FROM products p
+      JOIN product_variants v ON v.product_id = p.product_id
+      WHERE p.name ILIKE '%' || $1 || '%'
+         OR p.brand ILIKE '%' || $1 || '%'
+         OR p.description ILIKE '%' || $1 || '%'
+      GROUP BY p.product_id, p.name, p.brand, p.category, p.description
+      ORDER BY p.popularity_score DESC
+      LIMIT 8;
+
+  search-products-by-brand:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      List products by brand. Pass only the brand name - from "I want to see
+      some Nike stuff" pass "Nike".
+    parameters:
+      - name: brand
+        type: string
+        description: The brand name alone, e.g. "ASICS", "HOKA", "Osprey".
+    statement: |
+      SELECT p.name, p.brand, p.category, p.description, MIN(v.price) AS from_price
+      FROM products p
+      JOIN product_variants v ON v.product_id = p.product_id
+      WHERE p.brand ILIKE '%' || $1 || '%'
+      GROUP BY p.product_id, p.name, p.brand, p.category, p.description
+      ORDER BY p.popularity_score DESC
+      LIMIT 10;
+
+  get-product-details:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      Full details for one product by exact name: brand, category, description,
+      and every available size, colour and price. Call this before adding
+      anything to a basket - the customer must choose a size and a colour, and
+      prices can differ between variants of the same product.
+    parameters:
+      - name: product_name
+        type: string
+        description: The product's exact catalogue name.
+    statement: |
+      SELECT
+        p.name, p.brand, p.category, p.description,
+        v.size, v.color, v.price, v.sku
+      FROM products p
+      JOIN product_variants v ON v.product_id = p.product_id
+      WHERE LOWER(p.name) = LOWER($1)
+      ORDER BY v.size, v.color;
+
+  search-products-by-size:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      Find products available in a given size. Pass the catalogue size from the
+      normalize_size tool, not whatever the customer typed - the catalogue uses
+      EU sizing for footwear.
+    parameters:
+      - name: size
+        type: string
+        description: The catalogue size, e.g. "43" or "M".
+      - name: category
+        type: string
+        description: Category to narrow to, or an empty string for all.
+    statement: |
+      SELECT p.name, p.brand, p.category, v.size, v.color, v.price
+      FROM products p
+      JOIN product_variants v ON v.product_id = p.product_id
+      WHERE v.size = $1
+        AND ($2 = '' OR p.category ILIKE '%' || $2 || '%')
+      ORDER BY p.brand, p.name
+      LIMIT 20;
+
+  check-stock:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      Stock for a specific product, size and colour across all stores. Call
+      this before telling a customer something is available. Zero rows, or
+      zero quantities, means it is not in stock - say so rather than assuming.
+    parameters:
+      - name: product_name
+        type: string
+        description: The product's exact catalogue name.
+      - name: size
+        type: string
+        description: The catalogue size.
+      - name: color
+        type: string
+        description: The colour, or an empty string for all colours.
+    statement: |
+      SELECT s.name AS store_name, s.city, v.size, v.color, i.quantity
+      FROM inventory i
+      JOIN stores s ON s.store_id = i.store_id
+      JOIN product_variants v ON v.variant_id = i.variant_id
+      JOIN products p ON p.product_id = v.product_id
+      WHERE LOWER(p.name) = LOWER($1)
+        AND v.size = $2
+        AND ($3 = '' OR v.color ILIKE '%' || $3 || '%')
+      ORDER BY i.quantity DESC, s.name;
+
+  # ======================================================================
+  # Stores and delivery - public
+  # ======================================================================
+  list-stores:
+    kind: postgres-sql
+    source: storefront-db
+    description: List every store with its address and coordinates.
+    parameters: []
+    statement: |
+      SELECT store_id, name, address, city, country, latitude, longitude
+      FROM stores
+      ORDER BY country, city, name;
+
+  find-nearest-stores:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      Stores nearest to a latitude/longitude, with the distance in metres.
+      Ask the customer for their location or city first; do not guess at
+      coordinates.
+    parameters:
+      - name: latitude
+        type: float
+        description: The customer's latitude in decimal degrees.
+      - name: longitude
+        type: float
+        description: The customer's longitude in decimal degrees.
+    statement: |
+      -- Haversine in SQL. Avoids a PostGIS dependency for what is a
+      -- five-store lookup, and is accurate to well under a percent at these
+      -- distances.
+      SELECT
+        name, address, city, country, latitude, longitude,
+        ROUND(
+          6371000 * 2 * ASIN(SQRT(
+            POWER(SIN(RADIANS(latitude - $1) / 2), 2) +
+            COS(RADIANS($1)) * COS(RADIANS(latitude)) *
+            POWER(SIN(RADIANS(longitude - $2) / 2), 2)
+          ))
+        ) AS distance_metres
+      FROM stores
+      ORDER BY distance_metres ASC
+      LIMIT 5;
+
+  list-delivery-methods:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      Available delivery methods with their cost and estimated time. Show these
+      before checkout, then re-total with the chosen method's cost.
+    parameters: []
+    statement: |
+      SELECT method_id, name, description, cost, estimated_days
+      FROM delivery_methods
+      ORDER BY cost ASC;
+
+  check-store-inventory-summary:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      How many distinct products a store carries in a brand and category. Use
+      this for "do you have much Nike running gear in Utrecht?".
+    parameters:
+      - name: store_name
+        type: string
+        description: Full or partial store name.
+      - name: brand
+        type: string
+        description: Brand, or an empty string for all brands.
+      - name: category
+        type: string
+        description: Category, or an empty string for all categories.
+    statement: |
+      SELECT
+        s.name AS store_name, p.brand, p.category,
+        COUNT(DISTINCT p.product_id) AS product_count,
+        SUM(i.quantity) AS units_in_stock
+      FROM inventory i
+      JOIN stores s ON s.store_id = i.store_id
+      JOIN product_variants v ON v.variant_id = i.variant_id
+      JOIN products p ON p.product_id = v.product_id
+      WHERE s.name ILIKE '%' || $1 || '%'
+        AND ($2 = '' OR p.brand ILIKE '%' || $2 || '%')
+        AND ($3 = '' OR p.category ILIKE '%' || $3 || '%')
+        AND i.quantity > 0
+      GROUP BY s.name, p.brand, p.category
+      ORDER BY product_count DESC;
+
+  # ======================================================================
+  # Basket - IDENTITY-BOUND. user_email is injected from the verified token.
+  # ======================================================================
+  show-shopping-list:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      Show the signed-in customer's basket. The account is taken from their
+      verified sign-in; there is no parameter for it and you must not ask for
+      one. Pass the prices to calculate_cart_totals rather than adding them up.
+    parameters:
+      - name: user_email
+        type: string
+        description: Injected from the verified Google sign-in. Never set this yourself.
+        authServices:
+          - name: google_signin
+            field: email
+    statement: |
+      SELECT
+        p.name AS product_name, p.brand, p.category,
+        v.size, v.color, v.price, sli.quantity, sli.item_id
+      FROM shopping_list_items sli
+      JOIN shopping_lists sl ON sl.list_id = sli.list_id
+      JOIN users u ON u.user_id = sl.user_id
+      JOIN product_variants v ON v.variant_id = sli.variant_id
+      JOIN products p ON p.product_id = v.product_id
+      WHERE u.email = $1
+      ORDER BY sli.added_at;
+
+  add-to-shopping-list:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      Add a product variant to the signed-in customer's basket. Requires the
+      product name, size AND colour - get all three from the customer first,
+      and confirm before calling. Adding the same variant again increases its
+      quantity rather than creating a duplicate line.
+    parameters:
+      - name: product_name
+        type: string
+        description: The product's exact catalogue name.
+      - name: user_email
+        type: string
+        description: Injected from the verified Google sign-in. Never set this yourself.
+        authServices:
+          - name: google_signin
+            field: email
+      - name: size
+        type: string
+        description: The catalogue size.
+      - name: color
+        type: string
+        description: The colour, exactly as the product details listed it.
+      - name: quantity
+        type: integer
+        description: Units to add. Validate with validate_quantity first.
+    statement: |
+      WITH target_user AS (
+        SELECT user_id FROM users WHERE email = $2
+      ),
+      list AS (
+        INSERT INTO shopping_lists (user_id)
+        SELECT user_id FROM target_user
+        ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id
+        RETURNING list_id
+      ),
+      variant AS (
+        SELECT v.variant_id, v.price
+        FROM product_variants v
+        JOIN products p ON p.product_id = v.product_id
+        WHERE LOWER(p.name) = LOWER($1) AND v.size = $3 AND v.color = $4
+        LIMIT 1
+      )
+      INSERT INTO shopping_list_items (list_id, variant_id, quantity)
+      SELECT l.list_id, vr.variant_id, GREATEST(1, $5)
+      FROM list l CROSS JOIN variant vr
+      ON CONFLICT (list_id, variant_id)
+      DO UPDATE SET quantity = shopping_list_items.quantity + GREATEST(1, $5)
+      RETURNING item_id, variant_id, quantity;
+
+  remove-from-shopping-list:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      Remove one line from the signed-in customer's basket. Confirm which line
+      with the customer before calling - a basket is theirs, not yours.
+    parameters:
+      - name: item_id
+        type: integer
+        description: The item_id from show-shopping-list.
+      - name: user_email
+        type: string
+        description: Injected from the verified Google sign-in. Never set this yourself.
+        authServices:
+          - name: google_signin
+            field: email
+    statement: |
+      DELETE FROM shopping_list_items sli
+      USING shopping_lists sl, users u
+      WHERE sli.item_id = $1
+        AND sl.list_id = sli.list_id
+        AND u.user_id = sl.user_id
+        -- The email predicate is what stops an item_id from another customer's
+        -- basket being deleted, even if one were somehow guessed.
+        AND u.email = $2
+      RETURNING sli.item_id;
+
+  update-shopping-list-quantity:
+    kind: postgres-sql
+    source: storefront-db
+    description: Change the quantity of one basket line. Confirm with the customer first.
+    parameters:
+      - name: item_id
+        type: integer
+        description: The item_id from show-shopping-list.
+      - name: quantity
+        type: integer
+        description: The new quantity. Validate with validate_quantity first.
+      - name: user_email
+        type: string
+        description: Injected from the verified Google sign-in. Never set this yourself.
+        authServices:
+          - name: google_signin
+            field: email
+    statement: |
+      UPDATE shopping_list_items sli
+      SET quantity = $2
+      FROM shopping_lists sl, users u
+      WHERE sli.item_id = $1
+        AND sl.list_id = sli.list_id
+        AND u.user_id = sl.user_id
+        AND u.email = $3
+        AND $2 > 0
+      RETURNING sli.item_id, sli.quantity;
+
+  clear-shopping-list:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      Empty the signed-in customer's basket entirely. Destructive and not
+      undoable - confirm explicitly, and say how many items will be removed.
+    parameters:
+      - name: user_email
+        type: string
+        description: Injected from the verified Google sign-in. Never set this yourself.
+        authServices:
+          - name: google_signin
+            field: email
+    statement: |
+      DELETE FROM shopping_list_items sli
+      USING shopping_lists sl, users u
+      WHERE sl.list_id = sli.list_id
+        AND u.user_id = sl.user_id
+        AND u.email = $1
+      RETURNING sli.item_id;
+
+  # ======================================================================
+  # Orders - IDENTITY-BOUND
+  # ======================================================================
+  show-orders:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      The signed-in customer's orders, newest first, with line items. The
+      account comes from their verified sign-in. If a customer asks about
+      someone else's order, decline - you cannot look it up and must not try.
+    parameters:
+      - name: user_email
+        type: string
+        description: Injected from the verified Google sign-in. Never set this yourself.
+        authServices:
+          - name: google_signin
+            field: email
+    statement: |
+      SELECT
+        o.order_id, o.status, o.total_amount, o.shipping_address, o.created_at,
+        s.name AS store_name,
+        dm.name AS delivery_method, dm.cost AS delivery_cost, dm.estimated_days,
+        p.name AS product_name, v.size, v.color, oi.quantity, oi.unit_price
+      FROM orders o
+      JOIN users u ON u.user_id = o.user_id
+      LEFT JOIN stores s ON s.store_id = o.store_id
+      LEFT JOIN delivery_methods dm ON dm.method_id = o.method_id
+      LEFT JOIN order_items oi ON oi.order_id = o.order_id
+      LEFT JOIN product_variants v ON v.variant_id = oi.variant_id
+      LEFT JOIN products p ON p.product_id = v.product_id
+      WHERE u.email = $1
+      ORDER BY o.created_at DESC, o.order_id, p.name;
+
+  get-order-status:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      Status of one of the signed-in customer's orders. Returns nothing if the
+      order belongs to someone else, which is the intended behaviour - report
+      that you cannot find it among their orders.
+    parameters:
+      - name: order_id
+        type: integer
+        description: The order number.
+      - name: user_email
+        type: string
+        description: Injected from the verified Google sign-in. Never set this yourself.
+        authServices:
+          - name: google_signin
+            field: email
+    statement: |
+      SELECT
+        o.order_id, o.status, o.total_amount, o.shipping_address,
+        o.created_at, o.updated_at,
+        dm.name AS delivery_method, dm.estimated_days
+      FROM orders o
+      JOIN users u ON u.user_id = o.user_id
+      LEFT JOIN delivery_methods dm ON dm.method_id = o.method_id
+      WHERE o.order_id = $1 AND u.email = $2;
+
+  place-order:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      Convert the signed-in customer's basket into an order. Before calling:
+      show the basket, show the delivery methods, re-total with
+      calculate_cart_totals including the chosen method's shipping, and get an
+      explicit yes. Pass the `total` that calculate_cart_totals returned -
+      never a figure you worked out. The basket is emptied on success.
+    parameters:
+      - name: user_email
+        type: string
+        description: Injected from the verified Google sign-in. Never set this yourself.
+        authServices:
+          - name: google_signin
+            field: email
+      - name: shipping_address
+        type: string
+        description: The delivery address the customer confirmed.
+      - name: method_name
+        type: string
+        description: The chosen delivery method's exact name.
+      - name: total_amount
+        type: string
+        description: The `total` from calculate_cart_totals, as a decimal string.
+    statement: |
+      WITH target_user AS (
+        SELECT user_id FROM users WHERE email = $1
+      ),
+      method AS (
+        SELECT method_id FROM delivery_methods WHERE name = $3 LIMIT 1
+      ),
+      basket AS (
+        SELECT sli.variant_id, sli.quantity, v.price
+        FROM shopping_list_items sli
+        JOIN shopping_lists sl ON sl.list_id = sli.list_id
+        JOIN product_variants v ON v.variant_id = sli.variant_id
+        WHERE sl.user_id = (SELECT user_id FROM target_user)
+      ),
+      new_order AS (
+        INSERT INTO orders (user_id, method_id, status, total_amount, shipping_address)
+        SELECT
+          (SELECT user_id FROM target_user),
+          (SELECT method_id FROM method),
+          'Pending',
+          $4::numeric,
+          $2
+        -- No basket, no order. Without this the customer gets an empty order
+        -- they have to phone about.
+        WHERE EXISTS (SELECT 1 FROM basket)
+        RETURNING order_id
+      ),
+      lines AS (
+        -- unit_price is snapshotted here, so a later price change cannot
+        -- rewrite what this customer was charged.
+        INSERT INTO order_items (order_id, variant_id, quantity, unit_price)
+        SELECT o.order_id, b.variant_id, b.quantity, b.price
+        FROM new_order o CROSS JOIN basket b
+        RETURNING order_id
+      ),
+      emptied AS (
+        DELETE FROM shopping_list_items sli
+        USING shopping_lists sl
+        WHERE sl.list_id = sli.list_id
+          AND sl.user_id = (SELECT user_id FROM target_user)
+          AND EXISTS (SELECT 1 FROM new_order)
+        RETURNING sli.item_id
+      )
+      SELECT
+        o.order_id,
+        (SELECT COUNT(*) FROM lines) AS line_count,
+        $4::numeric AS total_amount
+      FROM new_order o;
+
+  cancel-order:
+    kind: postgres-sql
+    source: storefront-db
+    description: >
+      Cancel one of the signed-in customer's orders. Only possible while the
+      order is Pending, Confirmed or Packed; once Shipped it cannot be
+      cancelled here and the customer needs support. Returns no rows when the
+      order is not cancellable - report that rather than claiming success.
+    parameters:
+      - name: order_id
+        type: integer
+        description: The order number.
+      - name: user_email
+        type: string
+        description: Injected from the verified Google sign-in. Never set this yourself.
+        authServices:
+          - name: google_signin
+            field: email
+    statement: |
+      UPDATE orders o
+      SET status = 'Cancelled'
+      FROM users u
+      WHERE o.order_id = $1
+        AND u.user_id = o.user_id
+        AND u.email = $2
+        AND o.status IN ('Pending', 'Confirmed', 'Packed')
+      RETURNING o.order_id, o.status, o.total_amount;
+
+toolsets:
+  # The full storefront. Named by TOOLBOX_TOOLSET.
+  storefront:
+    - search-products-by-description
+    - search-products-by-keyword
+    - search-products-by-brand
+    - get-product-details
+    - search-products-by-size
+    - check-stock
+    - list-stores
+    - find-nearest-stores
+    - list-delivery-methods
+    - check-store-inventory-summary
+    - show-shopping-list
+    - add-to-shopping-list
+    - remove-from-shopping-list
+    - update-shopping-list-quantity
+    - clear-shopping-list
+    - show-orders
+    - get-order-status
+    - place-order
+    - cancel-order
+
+  # Browse-only. Point TOOLBOX_TOOLSET here for a public kiosk or an
+  # unauthenticated deployment: the write and personal-data tools are then not
+  # served at all, so no prompt drift can reach them.
+  storefront_browse_only:
+    - search-products-by-description
+    - search-products-by-keyword
+    - search-products-by-brand
+    - get-product-details
+    - search-products-by-size
+    - check-stock
+    - list-stores
+    - find-nearest-stores
+    - list-delivery-methods
+    - check-store-inventory-summary

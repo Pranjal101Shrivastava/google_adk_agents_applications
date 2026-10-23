@@ -1,0 +1,78 @@
+{
+  "eval_set_id": "lead_generation_pattern_discovery",
+  "name": "Pattern discovery routing",
+  "description": "With a complete brief the agent must run pattern discovery before any lead generation.",
+  "eval_cases": [
+    {
+      "eval_id": "complete_brief_runs_pattern_discovery",
+      "conversation": [
+        {
+          "invocation_id": "patterns-001",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "I sell cross-border payment rails. Find me fintech leads in Thailand."
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "I studied foreign fintech companies that recently entered Thailand and distilled the recurring signals that preceded their entry, with the number of companies each signal was observed in. Shall I now look for companies showing these signals that have not announced anything yet?"
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              { "name": "intent_extractor_agent", "args": {} },
+              { "name": "pattern_discovery_agent", "args": {} }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "lead_generation_agent",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "does_not_rediscover_existing_patterns",
+      "conversation": [
+        {
+          "invocation_id": "patterns-002",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "Remind me what the patterns were." }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "The signals I found for foreign fintech entering Thailand were a local leadership hire, a cluster of regional job postings, and a local trademark filing."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "intent_extractor_agent", "args": {} }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "lead_generation_agent",
+        "user_id": "eval-user",
+        "state": {
+          "country": "Thailand",
+          "industry": "fintech",
+          "stage": "lead_generation",
+          "patterns_available": true,
+          "discovered_patterns": "1. Local leadership hire (4/5 companies, 4-8 months lead time)\n2. Regional job postings (3/5 companies, 3-6 months)\n3. Trademark filing (2/5 companies, 6-12 months)"
+        }
+      }
+    }
+  ]
+}

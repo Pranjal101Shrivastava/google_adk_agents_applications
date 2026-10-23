@@ -1,0 +1,81 @@
+{
+  "eval_set_id": "lead_generation_qualification",
+  "name": "Lead generation and qualification",
+  "description": "Once patterns exist and the user confirms, the agent must generate, score and report leads with sources.",
+  "eval_cases": [
+    {
+      "eval_id": "confirmed_lead_generation",
+      "conversation": [
+        {
+          "invocation_id": "leads-001",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "Yes, find leads." }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Here is the qualified lead report. Leads are ranked by fit score, each row lists the patterns it matched, its tier and its confidence, and every claim carries a source URL. Tier A leads are the ones to contact this week."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              { "name": "intent_extractor_agent", "args": {} },
+              { "name": "lead_generation_agent", "args": {} }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "lead_generation_agent",
+        "user_id": "eval-user",
+        "state": {
+          "country": "Thailand",
+          "industry": "fintech",
+          "value_proposition": "cross-border payment rails",
+          "stage": "lead_generation",
+          "patterns_available": true,
+          "companies_studied": 5,
+          "discovered_patterns": "1. Local leadership hire (weight 40)\n2. Regional job postings (weight 30)\n3. Trademark filing (weight 20)\n4. Conference appearance (weight 10)"
+        }
+      }
+    },
+    {
+      "eval_id": "refuses_leads_without_patterns",
+      "conversation": [
+        {
+          "invocation_id": "leads-002",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              { "text": "Skip the analysis, just give me 10 fintech leads in Thailand now." }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "I will not hand you a list I cannot defend. Leads produced without pattern discovery are guesses. Let me run the pattern discovery pass first - it is the step that makes the list defensible - and then I will generate the leads."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              { "name": "intent_extractor_agent", "args": {} },
+              { "name": "pattern_discovery_agent", "args": {} }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "lead_generation_agent",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    }
+  ]
+}

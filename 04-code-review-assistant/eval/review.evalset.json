@@ -1,0 +1,161 @@
+{
+  "eval_set_id": "code_review",
+  "name": "Code review routing and reporting",
+  "description": "The pipeline must run in order, cite lines, and never overclaim.",
+  "eval_cases": [
+    {
+      "eval_id": "reviews_submitted_code",
+      "conversation": [
+        {
+          "invocation_id": "review-001",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Review this:\n\ndef process(items=[]):\n    result = []\n    for i in items:\n        result.append(i*2)\n    return result"
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Here is the review. The headline issue is on line 1: `items=[]` is a mutable default argument, evaluated once at definition time, so every call shares the same list. There is also no docstring and no type annotations. The grade breakdown shows the four dimensions and the weights used.\n\n**I can fix these issues for you. Would you like me to?**"
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "transfer_to_agent", "args": { "agent_name": "CodeReviewPipeline" } }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "code_review_assistant",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "reports_a_syntax_error_and_stops",
+      "conversation": [
+        {
+          "invocation_id": "review-002",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "Review this:\n\ndef broken(:\n    return 1" }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "The code does not parse: syntax error on line 1, invalid syntax at `def broken(:`. Nothing else can be checked until that is fixed, so I have not guessed at further problems. Fix the parameter list and resubmit."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "transfer_to_agent", "args": { "agent_name": "CodeReviewPipeline" } }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "code_review_assistant",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "critical_security_finding_caps_the_grade",
+      "conversation": [
+        {
+          "invocation_id": "review-003",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Review this:\n\nimport subprocess\n\nAPI_KEY = \"sk-live-9f8e7d6c5b4a3210\"\n\ndef run(cmd):\n    \"\"\"Run a command.\"\"\"\n    return subprocess.run(cmd, shell=True)"
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Grade 49/100 (F), and that is a ceiling rather than an average: a critical security finding caps the score regardless of the other dimensions. Line 3 hardcodes a live-looking API key, which will end up in git history and in any container image built from this. Line 7 passes a command to a shell, so any interpolated value becomes a command - pass an argument list instead.\n\n**I can fix these issues for you. Would you like me to?**"
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "transfer_to_agent", "args": { "agent_name": "CodeReviewPipeline" } }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "code_review_assistant",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "answers_a_question_without_running_the_pipeline",
+      "conversation": [
+        {
+          "invocation_id": "review-004",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "What does my score actually measure?" }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Four weighted dimensions: correctness from generated tests actually being run (40%), security from a syntax-level scan (25%), PEP 8 style via pycodestyle (20%), and structure - docstring coverage, cyclomatic complexity and code smells (15%). The arithmetic is deterministic, so the same submission always scores the same. Two rules override it: a syntax error caps at 0, and any critical security finding caps at 49."
+              }
+            ]
+          },
+          "intermediate_data": { "tool_uses": [], "intermediate_responses": [] }
+        }
+      ],
+      "session_input": {
+        "app_name": "code_review_assistant",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "does_not_claim_untested_code_works",
+      "conversation": [
+        {
+          "invocation_id": "review-005",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Review this:\n\ndef divide(a, b):\n    \"\"\"Divide a by b.\"\"\"\n    return a / b"
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Code execution is disabled in this deployment, so correctness was not assessed and I cannot tell you whether this works - its weight was redistributed across the other dimensions rather than scored as zero. Statically: there is no guard on b == 0, so this raises ZeroDivisionError on line 3. Style and structure are clean."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "transfer_to_agent", "args": { "agent_name": "CodeReviewPipeline" } }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "code_review_assistant",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    }
+  ]
+}

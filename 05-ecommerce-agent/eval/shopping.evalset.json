@@ -1,0 +1,244 @@
+{
+  "eval_set_id": "ecommerce_shopping",
+  "name": "Shopping flows",
+  "description": "Search, sizing, stock and pricing must all come from tools, never from the model.",
+  "eval_cases": [
+    {
+      "eval_id": "semantic_search_for_a_plain_language_need",
+      "conversation": [
+        {
+          "invocation_id": "shop-001",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              { "text": "I need something grippy for wet trail running." }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Two options fit that: the HOKA Speedgoat 5 from €144.99, which has a Vibram Megagrip outsole with 5mm lugs built for wet rock, and the Saucony Peregrine 13 from €129.00, which is lighter with a rock plate for rough ground. The Speedgoat is the grippier of the two in the wet."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              { "name": "search-products-by-description", "args": {} }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "ecommerce_agent",
+        "user_id": "guest",
+        "state": { "is_authenticated": false }
+      }
+    },
+    {
+      "eval_id": "converts_a_us_size_before_searching",
+      "conversation": [
+        {
+          "invocation_id": "shop-002",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              { "text": "Do you have the Speedgoat 5 in a US 10?" }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "US 10 is EU 44 in our sizing. The Speedgoat 5 is available in EU 44 in Blue Coral at €144.99. Sizing varies by model, so mention it if fit is a concern - want me to check stock in a store near you?"
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              { "name": "normalize_size", "args": { "size_text": "US 10" } },
+              { "name": "get-product-details", "args": {} }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "ecommerce_agent",
+        "user_id": "guest",
+        "state": { "is_authenticated": false }
+      }
+    },
+    {
+      "eval_id": "checks_stock_rather_than_assuming",
+      "conversation": [
+        {
+          "invocation_id": "shop-003",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              { "text": "Is the Storm Shell Jacket in stock in a medium?" }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "The Storm Shell Jacket in M is out of stock in every store right now. It is in the catalogue at €549.00, so it should come back - I just cannot promise when. Would you like me to suggest something else waterproof?"
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "check-stock", "args": {} }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "ecommerce_agent",
+        "user_id": "guest",
+        "state": { "is_authenticated": false }
+      }
+    },
+    {
+      "eval_id": "uses_the_tool_for_the_total",
+      "conversation": [
+        {
+          "invocation_id": "shop-004",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "What's my basket total?" }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Your basket comes to €218.99: Peregrine 13 in EU 43 at €129.00 and the Thermal Base Layer in M at €89.99. Shipping is free - the order is above the €75.00 threshold. That total includes €38.00 of VAT at 21%."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              { "name": "show-shopping-list", "args": {} },
+              { "name": "calculate_cart_totals", "args": {} }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "ecommerce_agent",
+        "user_id": "alex.morgan@example.com",
+        "state": {
+          "is_authenticated": true,
+          "verified_email": "alex.morgan@example.com",
+          "verified_name": "Alex Morgan"
+        }
+      }
+    },
+    {
+      "eval_id": "asks_for_size_and_colour_before_adding",
+      "conversation": [
+        {
+          "invocation_id": "shop-005",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "Add the Nimbus 25 to my basket." }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Which size and colour? The Nimbus 25 comes in EU 41, 42, 43 and 48 in Black/Gold, and EU 43 in White/Blue. Note the EU 48 is €179.99 rather than €169.99. I will not pick for you - the wrong size is a return."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "get-product-details", "args": {} }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "ecommerce_agent",
+        "user_id": "alex.morgan@example.com",
+        "state": {
+          "is_authenticated": true,
+          "verified_email": "alex.morgan@example.com",
+          "verified_name": "Alex Morgan"
+        }
+      }
+    },
+    {
+      "eval_id": "does_not_invent_a_product",
+      "conversation": [
+        {
+          "invocation_id": "shop-006",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              { "text": "Do you stock the Adidas Ultraboost Light 24?" }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "We do not carry that one - it is not in the catalogue, and I cannot order it in. For a cushioned road shoe we have the ASICS Nimbus 25 from €169.99 and the Brooks Glycerin 20 from €159.95."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              { "name": "search-products-by-keyword", "args": {} }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "ecommerce_agent",
+        "user_id": "guest",
+        "state": { "is_authenticated": false }
+      }
+    },
+    {
+      "eval_id": "confirms_before_placing_an_order",
+      "conversation": [
+        {
+          "invocation_id": "shop-007",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "Order it with express delivery." }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Before I place it, confirm: Peregrine 13 in EU 43 and the Thermal Base Layer in M, €218.99 total with free shipping (Express is €12.99 but the order is over the €75.00 threshold, so it is waived), delivered to Prinsengracht 263, 1016 GV Amsterdam, next working day. Shall I go ahead?"
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              { "name": "show-shopping-list", "args": {} },
+              { "name": "list-delivery-methods", "args": {} },
+              { "name": "calculate_cart_totals", "args": {} }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "ecommerce_agent",
+        "user_id": "alex.morgan@example.com",
+        "state": {
+          "is_authenticated": true,
+          "verified_email": "alex.morgan@example.com",
+          "verified_name": "Alex Morgan"
+        }
+      }
+    }
+  ]
+}

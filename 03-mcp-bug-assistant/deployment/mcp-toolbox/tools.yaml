@@ -1,0 +1,312 @@
+# MCP Toolbox for Databases - ticket database tools.
+#
+# Toolbox turns parameterised SQL into MCP tools. The agent never sees a
+# connection string and cannot issue arbitrary SQL: it can only invoke the
+# statements declared here, with typed parameters. That is the security model,
+# and it is why this file is worth reading carefully.
+#
+# Run locally:
+#   export PROJECT_ID=... DB_USER=... DB_PASS=...
+#   ./toolbox --tools-file deployment/mcp-toolbox/tools.yaml
+#
+# Docs: https://googleapis.github.io/genai-toolbox/
+
+sources:
+  # --- Cloud SQL for PostgreSQL (the default) ----------------------------
+  tickets-db:
+    kind: cloud-sql-postgres
+    project: ${PROJECT_ID}
+    region: ${DB_REGION:us-central1}
+    instance: ${DB_INSTANCE:software-assistant}
+    database: ${DB_NAME:tickets-db}
+    user: ${DB_USER}
+    password: ${DB_PASS}
+
+  # --- Local Postgres (uncomment for development) ------------------------
+  # Swap every tool's `source:` to `tickets-db-local`, or just rename the keys.
+  tickets-db-local:
+    kind: postgres
+    host: ${LOCAL_DB_HOST:127.0.0.1}
+    port: ${LOCAL_DB_PORT:5432}
+    database: ${LOCAL_DB_NAME:ticketsdb}
+    user: ${LOCAL_DB_USER:postgres}
+    password: ${LOCAL_DB_PASS:admin}
+
+tools:
+  # --- Read -------------------------------------------------------------
+  search-tickets:
+    kind: postgres-sql
+    source: tickets-db
+    description: >
+      Find tickets semantically similar to a bug description. Use this first on
+      every new report to check for an existing duplicate - it matches on
+      meaning, so a differently-worded report of the same bug still matches.
+      Pass a clean description or the suggested_search_query from
+      parse_stack_trace, not a raw stack trace.
+    parameters:
+      - name: query
+        type: string
+        description: A bug description or cleaned error summary to match against.
+    statement: |
+      SELECT
+        ticket_id, title, description, assignee, priority, status,
+        creation_time, updated_time,
+        (embedding <=> embedding('text-embedding-005', $1)::vector) AS distance
+      FROM tickets
+      WHERE embedding IS NOT NULL
+      ORDER BY distance ASC
+      LIMIT 5;
+
+  search-tickets-keyword:
+    kind: postgres-sql
+    source: tickets-db
+    description: >
+      Keyword search over ticket titles and descriptions. Use this when
+      search-tickets returns nothing useful, when you are looking for an exact
+      token such as an error class or a file name, or on a deployment where
+      embeddings are not populated.
+    parameters:
+      - name: query
+        type: string
+        description: Keywords or an exact phrase, e.g. "ConnectionResetError".
+    statement: |
+      SELECT ticket_id, title, description, assignee, priority, status,
+             creation_time, updated_time
+      FROM tickets
+      WHERE title ILIKE '%' || $1 || '%'
+         OR description ILIKE '%' || $1 || '%'
+      ORDER BY creation_time DESC
+      LIMIT 10;
+
+  get-ticket-by-id:
+    kind: postgres-sql
+    source: tickets-db
+    description: Retrieve one ticket's full details by its numeric ID.
+    parameters:
+      - name: ticket_id
+        type: integer
+        description: The ticket's numeric ID.
+    statement: |
+      SELECT ticket_id, title, description, assignee, priority, status,
+             creation_time, updated_time
+      FROM tickets
+      WHERE ticket_id = $1;
+
+  get-tickets-by-assignee:
+    kind: postgres-sql
+    source: tickets-db
+    description: >
+      List the tickets assigned to someone, by email or partial name. Open and
+      in-progress work is returned first.
+    parameters:
+      - name: assignee
+        type: string
+        description: Full or partial assignee email, e.g. "maya" or "maya.okafor@example.com".
+    statement: |
+      SELECT ticket_id, title, priority, status, creation_time, updated_time
+      FROM tickets
+      WHERE assignee ILIKE '%' || $1 || '%'
+      ORDER BY
+        CASE status
+          WHEN 'In Progress' THEN 1
+          WHEN 'Open'        THEN 2
+          WHEN 'Blocked'     THEN 3
+          ELSE 4
+        END,
+        priority ASC,
+        creation_time DESC;
+
+  get-tickets-by-status:
+    kind: postgres-sql
+    source: tickets-db
+    description: >
+      List tickets in a given status. Valid values are Open, In Progress,
+      Blocked, Resolved and Closed.
+    parameters:
+      - name: status
+        type: string
+        description: The status to filter by.
+    statement: |
+      SELECT ticket_id, title, assignee, priority, status, creation_time
+      FROM tickets
+      WHERE status = $1
+      ORDER BY priority ASC, creation_time DESC
+      LIMIT 50;
+
+  get-tickets-by-priority:
+    kind: postgres-sql
+    source: tickets-db
+    description: >
+      List tickets at a given priority. Valid values are 'P0 - Critical',
+      'P1 - High', 'P2 - Medium' and 'P3 - Low'.
+    parameters:
+      - name: priority
+        type: string
+        description: The exact priority string to filter by.
+    statement: |
+      SELECT ticket_id, title, assignee, priority, status, creation_time
+      FROM tickets
+      WHERE priority = $1
+      ORDER BY creation_time DESC
+      LIMIT 50;
+
+  get-tickets-by-date-range:
+    kind: postgres-sql
+    source: tickets-db
+    description: >
+      List tickets created or updated inside a date range. Use this for
+      questions like "what came in this week".
+    parameters:
+      - name: start_date
+        type: string
+        description: Inclusive start date, YYYY-MM-DD.
+      - name: end_date
+        type: string
+        description: Inclusive end date, YYYY-MM-DD.
+      - name: date_field
+        type: string
+        description: Which column to filter on - 'creation_time' or 'updated_time'.
+    statement: |
+      SELECT ticket_id, title, assignee, priority, status,
+             creation_time, updated_time
+      FROM tickets
+      WHERE CASE WHEN $3 = 'updated_time' THEN updated_time ELSE creation_time END
+            BETWEEN $1::timestamptz AND ($2::timestamptz + INTERVAL '1 day')
+      ORDER BY creation_time DESC
+      LIMIT 100;
+
+  get-ticket-stats:
+    kind: postgres-sql
+    source: tickets-db
+    description: >
+      Counts of tickets by status and priority. Use this for "how are we doing"
+      questions instead of listing every ticket and counting them yourself.
+    parameters: []
+    statement: |
+      SELECT status, priority, COUNT(*) AS ticket_count
+      FROM tickets
+      GROUP BY status, priority
+      ORDER BY status, priority;
+
+  # --- Write ------------------------------------------------------------
+  # These change state other people act on. The agent's instruction requires
+  # user confirmation before any of them; the database CHECK constraints are
+  # the backstop if it drifts anyway.
+  create-new-ticket:
+    kind: postgres-sql
+    source: tickets-db
+    description: >
+      Create a new ticket. Search for a duplicate first and confirm the title,
+      description, priority and assignee with the user before calling this.
+      Returns the new ticket_id.
+    parameters:
+      - name: title
+        type: string
+        description: A short, specific title. Describe the symptom, not a guess at the cause.
+      - name: description
+        type: string
+        description: >
+          Full description: symptom, reproduction steps, affected versions, and
+          the stack trace if there is one.
+      - name: assignee
+        type: string
+        description: Assignee email, or an empty string to leave it unassigned.
+      - name: priority
+        type: string
+        description: >
+          One of 'P0 - Critical', 'P1 - High', 'P2 - Medium', 'P3 - Low'.
+          Use the output of the triage_priority tool.
+      - name: status
+        type: string
+        description: Initial status, normally 'Open'.
+    statement: |
+      INSERT INTO tickets (title, description, assignee, priority, status)
+      VALUES (
+        $1,
+        $2,
+        NULLIF($3, ''),
+        COALESCE(NULLIF($4, ''), 'P3 - Low'),
+        COALESCE(NULLIF($5, ''), 'Open')
+      )
+      RETURNING ticket_id, title, priority, status, creation_time;
+
+  update-ticket-status:
+    kind: postgres-sql
+    source: tickets-db
+    description: >
+      Change a ticket's status. Confirm with the user first. Valid values are
+      Open, In Progress, Blocked, Resolved and Closed.
+    parameters:
+      - name: status
+        type: string
+        description: The new status.
+      - name: ticket_id
+        type: integer
+        description: The ticket's numeric ID.
+    statement: |
+      UPDATE tickets SET status = $1
+      WHERE ticket_id = $2
+      RETURNING ticket_id, title, status, updated_time;
+
+  update-ticket-priority:
+    kind: postgres-sql
+    source: tickets-db
+    description: >
+      Change a ticket's priority. Confirm with the user first, and base the new
+      value on the triage_priority rubric rather than your own judgement.
+    parameters:
+      - name: priority
+        type: string
+        description: One of 'P0 - Critical', 'P1 - High', 'P2 - Medium', 'P3 - Low'.
+      - name: ticket_id
+        type: integer
+        description: The ticket's numeric ID.
+    statement: |
+      UPDATE tickets SET priority = $1
+      WHERE ticket_id = $2
+      RETURNING ticket_id, title, priority, updated_time;
+
+  assign-ticket:
+    kind: postgres-sql
+    source: tickets-db
+    description: Assign a ticket to someone by email. Confirm with the user first.
+    parameters:
+      - name: assignee
+        type: string
+        description: The assignee's email address.
+      - name: ticket_id
+        type: integer
+        description: The ticket's numeric ID.
+    statement: |
+      UPDATE tickets SET assignee = $1
+      WHERE ticket_id = $2
+      RETURNING ticket_id, title, assignee, updated_time;
+
+toolsets:
+  # The toolset the agent loads. Named by MCP_TOOLBOX_TOOLSET.
+  tickets_toolset:
+    - search-tickets
+    - search-tickets-keyword
+    - get-ticket-by-id
+    - get-tickets-by-assignee
+    - get-tickets-by-status
+    - get-tickets-by-priority
+    - get-tickets-by-date-range
+    - get-ticket-stats
+    - create-new-ticket
+    - update-ticket-status
+    - update-ticket-priority
+    - assign-ticket
+
+  # Read-only variant. Point MCP_TOOLBOX_TOOLSET here for a deployment that
+  # should answer questions but never change a ticket - enforced by the server,
+  # so no prompt drift can bypass it.
+  tickets_readonly_toolset:
+    - search-tickets
+    - search-tickets-keyword
+    - get-ticket-by-id
+    - get-tickets-by-assignee
+    - get-tickets-by-status
+    - get-tickets-by-priority
+    - get-tickets-by-date-range
+    - get-ticket-stats

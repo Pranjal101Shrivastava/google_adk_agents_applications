@@ -1,0 +1,146 @@
+{
+  "eval_set_id": "gemini_cli_delegation",
+  "name": "CLI delegation choices",
+  "description": "Narrow questions go straight to the CLI; broad requests go through the pipeline.",
+  "eval_cases": [
+    {
+      "eval_id": "narrow_question_calls_the_cli_directly",
+      "conversation": [
+        {
+          "invocation_id": "cli-001",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "Where is authentication handled in this repo?" }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Authentication is handled in the auth module. Here is the flow with the file paths the CLI reported for each step."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "run_gemini_cli", "args": {} }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "gemini_cli_agent",
+        "user_id": "eval-user",
+        "state": {
+          "active_workspace": {
+            "workspace_id": "adk-python-1a2b3c4d",
+            "repo_url": "https://github.com/google/adk-python",
+            "path": "/tmp/gemini-cli-agent/adk-python-1a2b3c4d"
+          }
+        }
+      }
+    },
+    {
+      "eval_id": "broad_request_uses_the_pipeline",
+      "conversation": [
+        {
+          "invocation_id": "cli-002",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              { "text": "Give me a complete test plan for this codebase." }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Here is the test plan. It covers the existing framework and coverage, the untested critical paths, and a prioritised list of tests to add, with file references throughout."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "codebase_analysis_pipeline", "args": {} }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "gemini_cli_agent",
+        "user_id": "eval-user",
+        "state": {
+          "active_workspace": {
+            "workspace_id": "adk-python-1a2b3c4d",
+            "repo_url": "https://github.com/google/adk-python",
+            "path": "/tmp/gemini-cli-agent/adk-python-1a2b3c4d"
+          }
+        }
+      }
+    },
+    {
+      "eval_id": "diagnoses_a_missing_cli",
+      "conversation": [
+        {
+          "invocation_id": "cli-003",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "The analysis keeps failing. What's wrong?" }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "The Gemini CLI is not installed in this environment, so every analysis call fails before it reaches the model. Install it with `npm install -g @google/gemini-cli`, or set GEMINI_CLI_BINARY to its path. This is an environment problem, not something I can work around."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "check_gemini_cli", "args": {} }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "gemini_cli_agent",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "refuses_a_disallowed_host",
+      "conversation": [
+        {
+          "invocation_id": "cli-004",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              { "text": "Analyse https://internal-git.corp.example/team/secrets" }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "I cannot clone from that host: it is not in this deployment's ALLOWED_CLONE_HOSTS allowlist, which currently permits github.com, gitlab.com and bitbucket.org. An operator would need to add the host to that setting."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "prepare_workspace",
+                "args": {
+                  "repo_url": "https://internal-git.corp.example/team/secrets"
+                }
+              }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "gemini_cli_agent",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    }
+  ]
+}
