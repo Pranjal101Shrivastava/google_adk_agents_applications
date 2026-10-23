@@ -1,0 +1,66 @@
+# Cloud Build pipeline for the code review assistant.
+#
+#   gcloud builds submit --config deployment/cloudbuild.yaml \
+#     --substitutions=_REGION=us-central1
+substitutions:
+  _REGION: us-central1
+  _SERVICE: code-review-assistant
+  _REPO: agents
+  # gen2 gives a gVisor-sandboxed execution environment, which is the real
+  # isolation boundary for running submitted code. gen1 does not.
+  _EXECUTION_ENVIRONMENT: gen2
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+
+steps:
+  - id: test
+    name: python:3.12-slim
+    entrypoint: bash
+    args:
+      - -eu
+      - -c
+      - |
+        pip install --no-cache-dir -r requirements-dev.txt
+        python -m pytest tests/ -q
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - deployment/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --platform=managed
+      - --no-allow-unauthenticated
+      - --execution-environment=${_EXECUTION_ENVIRONMENT}
+      # Memory covers the agent plus the test subprocess's RLIMIT_AS.
+      - --cpu=2
+      - --memory=2Gi
+      # A review runs five model stages plus a test subprocess; the fix loop
+      # can run three more rounds on top.
+      - --timeout=900
+      - --max-instances=10
+      - --set-env-vars=GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=${_REGION},ENABLE_CODE_EXECUTION=true
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
