@@ -1,0 +1,112 @@
+{
+  "eval_set_id": "gemini_cli_workspace_lifecycle",
+  "name": "Workspace lifecycle",
+  "description": "The agent must prepare a workspace before any CLI work, and refuse to invent a repository.",
+  "eval_cases": [
+    {
+      "eval_id": "prepares_workspace_before_analysis",
+      "conversation": [
+        {
+          "invocation_id": "ws-001",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Explain the architecture of https://github.com/google/adk-python"
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "I cloned the repository, had the Gemini CLI read it, and here is the architecture: the module layout, the entry points and the data flow, with file paths for each claim."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "prepare_workspace",
+                "args": { "repo_url": "https://github.com/google/adk-python" }
+              },
+              { "name": "codebase_analysis_pipeline", "args": {} }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "gemini_cli_agent",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "asks_for_a_repository_instead_of_inventing_one",
+      "conversation": [
+        {
+          "invocation_id": "ws-002",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "Write me a test plan." }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Which repository should I analyse? Give me a git URL and I will clone it and have the Gemini CLI build the test plan from the actual code."
+              }
+            ]
+          },
+          "intermediate_data": { "tool_uses": [], "intermediate_responses": [] }
+        }
+      ],
+      "session_input": {
+        "app_name": "gemini_cli_agent",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "cleans_up_on_request",
+      "conversation": [
+        {
+          "invocation_id": "ws-003",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "Thanks, I'm done with that repo." }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Removed the workspace from disk. Give me another repository URL whenever you want to look at something else."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "cleanup_workspace",
+                "args": { "workspace_id": "adk-python-1a2b3c4d" }
+              }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "gemini_cli_agent",
+        "user_id": "eval-user",
+        "state": {
+          "active_workspace": {
+            "workspace_id": "adk-python-1a2b3c4d",
+            "repo_url": "https://github.com/google/adk-python",
+            "path": "/tmp/gemini-cli-agent/adk-python-1a2b3c4d"
+          }
+        }
+      }
+    }
+  ]
+}

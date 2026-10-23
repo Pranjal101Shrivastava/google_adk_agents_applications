@@ -1,0 +1,7 @@
+# Runtime dependencies for the Gemini CLI Tool Agent.
+# Also requires the Gemini CLI itself: npm install -g @google/gemini-cli
+google-adk>=2.12.0,<3.0.0
+google-genai>=1.0.0
+pydantic>=2.10.0,<3.0.0
+pydantic-settings>=2.6.0
+python-dotenv>=1.0.0

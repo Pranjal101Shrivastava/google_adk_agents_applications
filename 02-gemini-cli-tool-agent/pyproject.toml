@@ -1,0 +1,45 @@
+[project]
+name = "gemini-cli-tool-agent"
+version = "1.0.0"
+description = "ADK agent that drives the Gemini CLI as a tool against a sandboxed repository checkout."
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "google-adk>=2.12.0,<3.0.0",
+    "google-genai>=1.0.0",
+    "pydantic>=2.10.0,<3.0.0",
+    "pydantic-settings>=2.6.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.0", "pytest-asyncio>=0.24.0", "ruff>=0.6.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["gemini_cli_agent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore:SequentialAgent is deprecated:DeprecationWarning",
+    "ignore:LoopAgent is deprecated:DeprecationWarning",
+    "ignore:ParallelAgent is deprecated:DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 95
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "C4"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["gemini_cli_agent"]

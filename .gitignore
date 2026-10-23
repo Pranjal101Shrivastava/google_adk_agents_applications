@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.python-version
+
+# Testing / tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Secrets & local config
+.env
+.env.local
+*.env
+!.env.example
+!*.env.example
+service-account*.json
+credentials.json
+
+# ADK / agent runtime artifacts
+*.session.json
+.adk/
+sessions.db
+*.sqlite3
+eval_results/
+.eval_history/
+
+# Build & deploy
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+node_modules/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local scratch
+tmp/
+scratch/
