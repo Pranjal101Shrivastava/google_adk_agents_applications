@@ -1,0 +1,172 @@
+{
+  "eval_set_id": "bug_assistant_triage",
+  "name": "Bug triage",
+  "description": "Parse before searching, find known duplicates, triage with the rubric.",
+  "eval_cases": [
+    {
+      "eval_id": "stack_trace_is_parsed_before_searching",
+      "conversation": [
+        {
+          "invocation_id": "triage-001",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Our checkout is throwing this:\n\nTraceback (most recent call last):\n  File \"/app/svc/api/routes.py\", line 88, in checkout\n    totals = compute_totals(cart)\n  File \"/app/svc/pricing/aggregate.py\", line 142, in compute_totals\n    return sum(float(item[\"price\"]) for item in items)\nValueError: could not convert string to float: 'N/A'"
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "This is already known. Ticket 1 covers the same failure: checkout returns 500 on large orders, with the root cause in svc/pricing/aggregate.py line 142 in compute_totals, where a non-numeric price reaches float(). It is P1 - High, In Progress, assigned to maya.okafor@example.com. The trigger is a price of 'N/A' in the cart data rather than the item count itself."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              { "name": "parse_stack_trace", "args": {} },
+              { "name": "search-tickets", "args": {} }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "software_bug_assistant",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "semantic_duplicate_is_recognised",
+      "conversation": [
+        {
+          "invocation_id": "triage-002",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Customers say they can't buy anything when their basket has a couple of dozen products. Should I file a bug?"
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "No new ticket needed - this is already tracked twice. Ticket 1 is the engineering ticket (P1 - High, In Progress, maya.okafor@example.com) and ticket 8 is the customer-reported version of the same problem. Worth merging 8 into 1 rather than opening a third."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "search-tickets", "args": {} }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "software_bug_assistant",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "third_party_cause_goes_outward",
+      "conversation": [
+        {
+          "invocation_id": "triage-003",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Getting ConnectionResetError from site-packages/vendorpay/transport.py. Is this us?"
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "The failing frame is in the vendor library, not our code, so this is not a bug in our service. Ticket 2 already tracks it (P2 - Medium, Open), and the vendor-pay 3.5.0 changelog describes a keep-alive fix that matches these symptoms. Upgrading the SDK is the likely resolution."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              { "name": "parse_stack_trace", "args": {} },
+              { "name": "search-tickets", "args": {} },
+              { "name": "search_stackoverflow", "args": {} }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "software_bug_assistant",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "triage_uses_the_rubric_not_a_guess",
+      "conversation": [
+        {
+          "invocation_id": "triage-004",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Production API is returning 500s for every user and there's no workaround. How bad is this?"
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "P0 - Critical. The rubric scores this at 90: production is down or unusable (50), all users are affected (20), and no workaround exists (20). That clears the 70-point P0 threshold."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "triage_priority", "args": {} }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "software_bug_assistant",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "asks_rather_than_assuming_a_signal",
+      "conversation": [
+        {
+          "invocation_id": "triage-005",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "The export is broken. What priority?" }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "I need the impact before I can give you a defensible priority. Is production affected, how many users, is there a workaround, and is any data lost? Guessing at those would produce a confident number with nothing behind it."
+              }
+            ]
+          },
+          "intermediate_data": { "tool_uses": [], "intermediate_responses": [] }
+        }
+      ],
+      "session_input": {
+        "app_name": "software_bug_assistant",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    }
+  ]
+}

@@ -1,0 +1,159 @@
+{
+  "eval_set_id": "bug_assistant_ticket_management",
+  "name": "Ticket management",
+  "description": "Reads freely, confirms before writing, and never invents ticket data.",
+  "eval_cases": [
+    {
+      "eval_id": "confirms_before_creating_a_ticket",
+      "conversation": [
+        {
+          "invocation_id": "mgmt-001",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "File a bug: the settings page 404s for users on the legacy plan."
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "I found no existing ticket for this, so it looks new. Before I create it, confirm: title \"Settings page returns 404 for legacy-plan users\", priority P2 - Medium, unassigned. Is that right, and do you know whether there is a workaround? That changes the priority."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "search-tickets", "args": {} }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "software_bug_assistant",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "reads_assignee_workload_without_confirmation",
+      "conversation": [
+        {
+          "invocation_id": "mgmt-002",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "What is maya working on?" }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "maya.okafor@example.com has three tickets: 10 (audit log missing the acting user, P0 - Critical, In Progress), 1 (checkout 500s on large orders, P1 - High, In Progress), and 4 (Android 13 launch crash, P0 - Critical, Resolved)."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "get-tickets-by-assignee", "args": {} }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "software_bug_assistant",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "does_not_invent_a_ticket_it_cannot_find",
+      "conversation": [
+        {
+          "invocation_id": "mgmt-003",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "What's the status of ticket 9999?" }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "There is no ticket 9999 in the database. If you have the title or a description instead, I can search for the right one."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              { "name": "get-ticket-by-id", "args": { "ticket_id": 9999 } }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "software_bug_assistant",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "reports_a_missing_integration_instead_of_guessing",
+      "conversation": [
+        {
+          "invocation_id": "mgmt-004",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Check if there's an upstream GitHub issue for the vendorpay keep-alive bug."
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "I cannot search GitHub in this deployment: GITHUB_PERSONAL_ACCESS_TOKEN is not configured, so the GitHub MCP tools are not loaded. I can search the web and Stack Overflow for the same thing, which will often surface the issue anyway. Want me to?"
+              }
+            ]
+          },
+          "intermediate_data": { "tool_uses": [], "intermediate_responses": [] }
+        }
+      ],
+      "session_input": {
+        "app_name": "software_bug_assistant",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "does_not_confuse_blocked_with_in_progress",
+      "conversation": [
+        {
+          "invocation_id": "mgmt-005",
+          "user_content": {
+            "role": "user",
+            "parts": [{ "text": "Is anyone actively working on the export OOM?" }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "No. Ticket 6 (nightly export OOM, P1 - High) is Blocked, not In Progress - it is waiting on the streaming export work from the data platform team. lee.chen@example.com owns it but cannot proceed yet."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [{ "name": "search-tickets", "args": {} }],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "software_bug_assistant",
+        "user_id": "eval-user",
+        "state": {}
+      }
+    }
+  ]
+}
